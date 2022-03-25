@@ -1,0 +1,95 @@
+#Case control code
+require(readxl)
+
+controls_20211214 <- read_excel("controls_file.xls")
+cases_20211214 <- read_excel("cases_file.xls")
+
+
+control_mat <- controls_20211214[,c("Subject_ID", "Age", "SEX", "CCI", "Severity")]
+control_mat$case_control <- "control"
+case_mat <- cases_20211214[,c("Subject_ID", "Age", "SEX", "CCI", "Severity")]
+case_mat$case_control <- "case"
+
+
+library(dplyr)
+#Make 2 separate dataframes
+case_mat <- case_mat %>% mutate(row = row_number())
+control_mat <- control_mat %>% mutate(row = row_number())
+
+
+#Join them by WHO
+combine_data <- case_mat %>%
+  full_join(control_mat, by = c( "SEX", "CCI", "Severity")) %>%
+  filter(abs(Age.x - Age.y) <= 5)%>%
+  filter( Subject_ID.x !=  Subject_ID.y)
+
+#Get the row index and slice individual data
+case_mat %>%
+  slice(combine_data$row.x) %>%
+  bind_rows(control_mat %>%
+              slice(combine_data$row.y)) %>%
+  #This is just to rearrange the data for viewing the rows in pairs
+  slice(c(rbind(1:(n()/2), ((n()/2)+1):n())))
+
+
+
+#In below code we will identify unique cases for unique controls
+combine_data2 <- combine_data 
+
+#Calculating Age differences between cases and controls
+combine_data2$age_diff <- combine_data2$Age.x - combine_data2$Age.y
+
+
+#how many times a control is assigned to a case
+combine_data2 = combine_data2 %>% group_by(Subject_ID.y) %>% mutate(freq_of_controls = n())
+
+#Order variable by frequency of controls and age difference
+combine_data2<-combine_data2[order(combine_data2$freq_of_controls,combine_data2$age_diff),]
+
+combine_data3 <- combine_data2 %>%
+  group_by(Subject_ID.x) %>% 
+  filter(age_diff == min(age_diff)) %>% 
+  distinct(Subject_ID.x, .keep_all = T)
+
+combine_data3 <- combine_data3[!duplicated(combine_data3$Subject_ID.y), ]
+
+
+#repeating again
+
+combine_data4 <- subset(combine_data2, !Subject_ID.x %in% unique(combine_data3$Subject_ID.x))
+combine_data4 <- subset(combine_data4, !Subject_ID.y %in% unique(combine_data3$Subject_ID.y))
+
+
+combine_data4 <- combine_data4 %>%
+  group_by(Subject_ID.x) %>% 
+  filter(age_diff == min(age_diff)) %>% 
+  distinct(Subject_ID.y, .keep_all = T)%>%
+  group_by(Subject_ID.x) %>% 
+  distinct(Subject_ID.x, .keep_all = T)
+
+combine_data5 <- combine_data4[!duplicated(combine_data4$Subject_ID.y), ]
+
+#Combining  unique cases with unique controls
+combine_data <- rbind(combine_data3, combine_data5)
+
+
+combine_data6 <- subset(combine_data2, !Subject_ID.x %in% unique(combine_data$Subject_ID.x))
+combine_data6 <- subset(combine_data6, !Subject_ID.y %in% unique(combine_data$Subject_ID.y))
+
+
+combine_data6 <- combine_data6 %>%
+  group_by(Subject_ID.x) %>% 
+  filter(age_diff == min(age_diff)) %>% 
+  distinct(Subject_ID.x, .keep_all = T)
+
+#Combining all unique cases with unique controls
+combine_data <- rbind(combine_data3, combine_data5,combine_data6)
+
+length(unique(combine_data$Subject_ID.y))
+length(unique(combine_data$Subject_ID.x))
+
+combine_data %>% group_by(Subject_ID.x) %>% tally()
+
+
+combine_data <- combine_data[,c("Subject_ID.x", "Age.x", "SEX", "CCI","Severity", "Subject_ID.y", "Age.y" )]
+colnames(combine_data) <- c("Subject_ID_case", "Age_case", "SEX", "CCI","Severity", "Subject_ID_control", "Age_control" )
